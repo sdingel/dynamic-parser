@@ -7,8 +7,9 @@ package de.steffendingel.dynamicparser;
  * <ul>
  * <li>The action is called exactly once for every match of the rule that is part of the result of parsing. It is never
  * called for an alternative that the parser discards.</li>
- * <li>The action is called only after the match is confirmed, that is, when it is certain that the match is part of the
- * result. This can be later than the moment the parser reaches the end of the match.</li>
+ * <li>The action is called only after the match is confirmed, that is, when it is part of every way in which the input
+ * read so far can still be interpreted. This can be later than the moment the parser reaches the end of the match. The
+ * action is called as soon as the match and all matches before it are confirmed, before the next token is read.</li>
  * <li>Actions are called in the order of a bottom-up, left-to-right traversal of the result: the actions of the matches
  * of the symbols on the right-hand side are called before the action of the rule itself, from left to right.</li>
  * </ul>

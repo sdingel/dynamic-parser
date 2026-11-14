@@ -17,9 +17,8 @@ public interface Parser {
 	/**
 	 * Creates a parser for the given grammar.
 	 * <p>
-	 * <b>Implementation status:</b> The parser reads the complete input before it calls the first action, and actions
-	 * cannot change the grammar yet: {@link GrammarEditor#add(Rule)} and {@link GrammarEditor#remove(Rule)} throw an
-	 * {@link UnsupportedOperationException}.
+	 * <b>Implementation status:</b> Actions cannot change the grammar yet: {@link GrammarEditor#add(Rule)} and
+	 * {@link GrammarEditor#remove(Rule)} throw an {@link UnsupportedOperationException}.
 	 *
 	 * @param grammar the initial grammar of every parse run
 	 * @return a new parser
@@ -35,8 +34,9 @@ public interface Parser {
 	 * The complete sequence must be a match of the start symbol of the grammar. The parser calls the {@link Action
 	 * actions} of all matches the result consists of and returns the value of the match of the start symbol.
 	 * <p>
-	 * The tokens are read one at a time and in order. An action that changes the grammar is called before the token
-	 * that follows its match is read.
+	 * The tokens are read one at a time and in order. Before a token is read, all actions have been called that can be
+	 * called for the input read so far, see {@link Action}. If parsing fails, the actions called up to that point
+	 * remain called.
 	 *
 	 * @param tokens the tokens to parse; arbitrary objects other than {@code null}
 	 * @return the value returned by the action of the match of the start symbol; may be {@code null}
