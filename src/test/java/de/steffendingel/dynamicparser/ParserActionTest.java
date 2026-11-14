@@ -75,12 +75,13 @@ class ParserActionTest {
 	}
 
 	@Test
-	void doesNotCallActionsIfTheInputHasASyntaxError() {
+	void callsOnlyTheActionsOfConfirmedMatchesIfTheInputHasASyntaxError() {
 		Grammar grammar = new Grammar(s, recording("S", s, a, y), recording("A", a, x));
 
 		assertThrows(SyntaxException.class, () -> Parser.create(grammar).parse(tokens("x z")));
 
-		assertEquals(List.of(), calls);
+		// A is part of every reading after "x"; S is never completed.
+		assertEquals(List.of("A"), calls);
 	}
 
 	@Test
