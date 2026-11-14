@@ -2,7 +2,74 @@
 
 A generic parser for Java whose grammar can be modified while parsing.
 
-The project is at an early stage: the build is set up, but there is no parser functionality yet.
+The parser is intended for extensible programming languages: languages in which new constructs can be defined
+within the language itself.
+
+**Status:** The behavior is specified and the public API is defined, but the parser is not implemented yet.
+
+## What the parser does
+
+- **Generic.** The parser is not a parser generator. It receives its grammar at runtime through an API, as ordinary
+  rules of the form `A -> X1 … Xn`.
+- **Actions.** Every rule has an action: a callback that computes the value of a match of the rule from the values of
+  its parts. The parser returns the value computed for the complete input.
+- **Dynamic grammar.** An action can add rules to the grammar and remove rules from it. The changes apply to the
+  input that follows: an added rule can be used from there on, a removed rule begins no new matches, and matches
+  that have already begun are completed.
+- **Reliable actions.** An action is called exactly once for every match that is part of the result, never for an
+  alternative that the parser discards, and in bottom-up, left-to-right order. The parser calls an action only when
+  it is certain that the match is part of the result.
+- **Any context-free grammar,** including left recursion and empty rules. Input that matches the grammar in more
+  than one way is rejected as ambiguous.
+- **Strict timing.** An action that changes the grammar must be certain when its match ends, so that the change can
+  apply to the very next token. Otherwise the change fails with an exception instead of taking effect later.
+
+The complete specification with the reasoning behind these decisions is in
+[`docs/architecture.md`](docs/architecture.md).
+
+## Example
+
+A tiny language in which `var x ;` declares a name and `print x ;` uses a declared name. Tokens are strings.
+Declaring a name adds a grammar rule, so a name that is not declared is a syntax error.
+
+```java
+Nonterminal program = new Nonterminal("Program");
+Nonterminal statement = new Nonterminal("Statement");
+Nonterminal expression = new Nonterminal("Expression");
+
+Terminal var = new Terminal("'var'", "var"::equals);
+Terminal print = new Terminal("'print'", "print"::equals);
+Terminal semicolon = new Terminal("';'", ";"::equals);
+Terminal anyWord = new Terminal("word", token -> ((String) token).chars().allMatch(Character::isLetter));
+
+// Program -> ε | Program Statement
+Rule noStatements = new Rule(program, List.of());
+Rule moreStatements = new Rule(program, List.of(program, statement));
+
+// Statement -> 'var' word ';'
+// The action adds the rule "Expression -> <the declared word>". From the next statement on, the declared
+// word is an expression.
+Rule declaration = new Rule(statement, List.of(var, anyWord, semicolon), match -> {
+	String name = match.value(1, String.class);
+	Terminal nameTerminal = new Terminal("'" + name + "'", name::equals);
+	match.grammar().add(new Rule(expression, List.of(nameTerminal)));
+	return ParseNode.of(match);
+});
+
+// Statement -> 'print' Expression ';'
+// There is no rule for Expression yet: only declared names are expressions.
+Rule printStatement = new Rule(statement, List.of(print, expression, semicolon));
+
+Grammar grammar = new Grammar(program, noStatements, moreStatements, declaration, printStatement);
+```
+
+Parsing is not available yet. It will look like this:
+
+```java
+Parser parser = ...; // creating a parser is added with the implementation
+Object result = parser.parse(List.of("var", "x", ";", "print", "x", ";")); // the parse tree
+parser.parse(List.of("print", "y", ";")); // throws SyntaxException: y is not declared
+```
 
 ## Requirements
 
