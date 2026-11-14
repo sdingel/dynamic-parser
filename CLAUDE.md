@@ -1,23 +1,31 @@
 # dynamic-parser
 
-Generischer Parser, dessen Grammatik während des Parsens verändert werden kann.
+A generic parser whose grammar can be modified while parsing.
 
-## Zusammenarbeit
+## Collaboration
 
-- Anweisungen auf Sinnhaftigkeit prüfen. Wenn etwas komisch wirkt oder vom üblichen Vorgehen abweicht: nachfragen, bevor umgesetzt wird.
-- Vorschläge des Nutzers kritisch bewerten, nicht einfach zustimmen.
+- Check the user's instructions for plausibility. If something seems odd or deviates from common practice, ask before implementing it.
+- Evaluate the user's proposals critically instead of simply agreeing.
 
-## Arbeitsablauf mit GitHub Issues
+## Language
 
-- Planung und Umsetzung laufen über GitHub Issues: Ein Feature wird besprochen, daraus werden gemeinsam ein oder mehrere Issues formuliert.
-- Issues werden einzeln und nur auf ausdrückliche Anweisung umgesetzt.
-- Jeder Commit nennt die Nummer des zugehörigen Issues.
-- Commits ohne Issue gibt es nur in Sonderfällen, die der Nutzer ausdrücklich genehmigt. Genehmigte Sonderfälle:
-  - Änderungen an dieser Datei (`CLAUDE.md`).
-- Pull Requests nur auf ausdrückliche Anweisung anlegen.
+- Everything in the repository is written in English: code, Javadoc, comments, documentation, commit messages, issues, pull requests and this file.
+- Conversations with the user may be held in German.
 
-## Technik
+## Workflow with GitHub issues
 
-- Java 17 (Sprachlevel und Zielplattform: `maven.compiler.release` = 17).
-- Build mit Maven 3.9.x.
-- Der Parser ist ein Modul im Sinne des Java Module System (`module-info.java`). Nur die Pakete der Programmierschnittstelle werden exportiert; Implementierungspakete bleiben nicht exportiert.
+- Planning and implementation are tracked in GitHub issues: a feature is discussed first, then one or more issues are written together with the user.
+- Issues are implemented one at a time, and only when the user explicitly asks for it.
+- One branch and one pull request per issue.
+- Every commit references its issue number in the subject line: `#12: Short description`.
+- Commits without an issue are allowed only in special cases the user has explicitly approved. Approved special cases:
+  - Changes to this file (`CLAUDE.md`).
+- When an issue is completely implemented and all open questions to the user are resolved, create the pull request without being asked.
+- The pull request closes its issue automatically: put `Closes #12` in the description. If the pull request implements only part of the issue (which should be an exception), use `Refs #12` instead so the issue stays open.
+
+## Technology
+
+- Java 21 (language level and target platform: `maven.compiler.release` = 21).
+- Build with Maven 3.9.x, pinned via the Maven Wrapper.
+- The parser is a module in the sense of the Java Module System (`module-info.java`). Only the packages of the public API are exported; implementation packages are not exported.
+- Because module encapsulation only takes effect on the module path, implementation code is additionally shielded for classpath users: implementation classes are package-private wherever possible, and implementation packages carry `internal` in their name.
