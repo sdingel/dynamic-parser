@@ -36,5 +36,5 @@ A generic parser whose grammar can be modified while parsing.
 - No runtime dependencies. Adding one requires a library that helps substantially and the user's approval.
 - Tests are written with JUnit. Every issue is implemented together with its tests.
 - Javadoc is mandatory for everything in the exported API packages; for implementation code only where it aids understanding.
-- Formatting: Eclipse formatter with the built-in Eclipse profile and a maximum line length of 120. The profile is checked into the repository and enforced in the build.
+- Formatting: Eclipse formatter with the built-in Eclipse profile, indentation with tabs and a maximum line length of 120. The profile is checked into the repository and enforced in the build.
 - CI: a GitHub Actions workflow runs `mvn verify` on every pull request.
