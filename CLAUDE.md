@@ -17,6 +17,8 @@ A generic parser whose grammar can be modified while parsing.
 - Planning and implementation are tracked in GitHub issues: a feature is discussed first, then one or more issues are written together with the user.
 - Issues are implemented one at a time, and only when the user explicitly asks for it.
 - One branch and one pull request per issue.
+- Only the user merges pull requests; never merge yourself.
+- Pull requests are merged with a merge commit, not squashed, so the full history is kept. Keep commits meaningful and self-contained accordingly.
 - Every commit references its issue number in the subject line: `#12: Short description`.
 - Commits without an issue are allowed only in special cases the user has explicitly approved. Approved special cases:
   - Changes to this file (`CLAUDE.md`).
@@ -25,7 +27,15 @@ A generic parser whose grammar can be modified while parsing.
 
 ## Technology
 
+- Maven coordinates: groupId `de.steffendingel`, artifactId `dynamic-parser`. Base package and module name: `de.steffendingel.dynamicparser`.
+- Versioning follows Semantic Versioning, starting at `0.1.0-SNAPSHOT`. The project may be published to Maven Central later.
+
 - Java 21 (language level and target platform: `maven.compiler.release` = 21).
 - Build with Maven 3.9.x, pinned via the Maven Wrapper.
 - The parser is a module in the sense of the Java Module System (`module-info.java`). Only the packages of the public API are exported; implementation packages are not exported.
 - Because module encapsulation only takes effect on the module path, implementation code is additionally shielded for classpath users: implementation classes are package-private wherever possible, and implementation packages carry `internal` in their name.
+- No runtime dependencies. Adding one requires a library that helps substantially and the user's approval.
+- Tests are written with JUnit. Every issue is implemented together with its tests.
+- Javadoc is mandatory for everything in the exported API packages; for implementation code only where it aids understanding.
+- Formatting: Eclipse formatter with the built-in Eclipse profile and a maximum line length of 120. The profile is checked into the repository and enforced in the build.
+- CI: a GitHub Actions workflow runs `mvn verify` on every pull request.
