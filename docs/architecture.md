@@ -1,11 +1,9 @@
 # Architecture
 
-This document specifies what the parser does and records the fundamental design decisions with their reasoning. It
-describes the behavior, not the algorithm: how the parser achieves this behavior is the subject of the implementation
-(issue #5).
-
-The public API implementing this specification is the package `de.steffendingel.dynamicparser`. Its `Parser`
-interface has no implementation yet.
+This document specifies what the parser does and records the fundamental design decisions with their reasoning. The
+sections up to [Public API](#public-api) describe the behavior independently of the algorithm;
+[Implementation](#implementation) describes how the parser works and which parts of the specified behavior are not
+implemented yet.
 
 ## Purpose
 
@@ -221,10 +219,71 @@ Design decisions of the API:
 - **Tokens are read lazily.** The parser reads the tokens one at a time and calls a grammar-changing action before
   reading the token following its match (decision 7).
 
+## Implementation
+
+The implementation is the package `de.steffendingel.dynamicparser.internal`, which the module does not export. A
+parser is created with `Parser.create(Grammar)`.
+
+### Status
+
+The parser is implemented in three steps (issue #5). The first step is done:
+
+1. **Fixed grammars (done).** The parser handles every context-free grammar and reports syntax errors and
+   ambiguities.
+2. **Confirmed matches (open).** Until then, the parser reads the complete input before it calls the first action.
+3. **Grammar changes (open).** Until then, `GrammarEditor.add` and `remove` throw an
+   `UnsupportedOperationException`.
+
+### Algorithm
+
+The parser is based on Earley's algorithm. Reason: it works directly on the rules, without tables computed from the
+grammar in advance, so the grammar can change between two positions; it handles every context-free grammar; and its
+central notion matches decision 6: an Earley item is a rule application that began at a certain position.
+
+A parse run has two phases.
+
+**Recognition (`Chart`).** For every position the parser computes the set of Earley items: all rule applications
+that are consistent with the tokens before that position, each with the position at which it began and the number of
+symbols matched so far. The set of the next position results from the items that can take the next token (scanning)
+and from everything that follows from them: the rules of the nonterminals that can begin there (prediction) and the
+items advanced by matches that end there (completion). If no item can take the next token, or if the input ends
+without a complete match of the start symbol, this is a syntax error; the terminals that the items of the current
+position expect are reported as the expected terminals.
+
+Empty rules need special care: an empty match can be completed before all items waiting for its nonterminal are
+known. An item that starts waiting for a nonterminal is therefore advanced immediately if an empty match of that
+nonterminal has already been completed at the same position.
+
+**Evaluation (`Evaluator`).** The chart only tells that the input matches, not how. The derivation is reconstructed
+from the chart from the top: for a nonterminal and a section, the parser looks up the rules that match the section
+and determines, from right to left, where the matches of the symbols of the right-hand side begin. Every step of this
+search is checked against the items in the chart, so the search never follows a path that leads nowhere. If there is
+more than one way, the section is ambiguous; the search stops at the second way found. Rules that can be nested in
+themselves without consuming input (`A -> A`) need no special treatment: they always yield a second way.
+
+The actions are called during a bottom-up, left-to-right traversal of the unique derivation. The traversal uses an
+explicit stack instead of recursion, because the depth of the result grows with the length of the input for
+recursive rules such as lists.
+
+Consequences of this approach in the current step:
+
+- If the input is ambiguous, the actions of the matches before the ambiguous section, in the order of the actions,
+  have already been called. If several sections are ambiguous, the first one in that order is reported, and of
+  nested ambiguous sections the outermost one.
+- If the input has a syntax error, no action has been called. This changes with the second step: actions of
+  confirmed matches will then have been called when a later syntax error is found.
+- The predicate of a terminal is called at most once per token.
+
+### Not implemented: optimizations
+
+The implementation is not optimized. In particular, right-recursive rules need time quadratic in the length of the
+input; Leo's optimization, which avoids that, is left for later because it complicates the reconstruction of
+derivations.
+
 ## Open points
 
 - The exact criterion for detecting confirmed matches (see [Confirmed matches](#confirmed-matches)).
-- The `Parser` implementation and the factory for creating a parser (issue #5).
+- Steps two and three of the implementation (issue #5), see [Status](#status).
 - Whether the behavior of left-recursive rules under grammar changes (decision 6) is the desired one.
 - Characters or tokens as terminals, and lexing in general (decision 3).
 - Operator precedence and associativity are not separate concepts so far; they have to be expressed in the rules.
