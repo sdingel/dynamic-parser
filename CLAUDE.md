@@ -38,11 +38,11 @@ A generic parser whose grammar can be modified while parsing.
 - Maven coordinates: groupId `de.steffendingel`, artifactId `dynamic-parser`. Base package and module name: `de.steffendingel.dynamicparser`.
 - Versioning follows Semantic Versioning, starting at `0.1.0-SNAPSHOT`. The project may be published to Maven Central later.
 - Java 21 (language level and target platform: `maven.compiler.release` = 21).
-- Build with Maven 3.9.x, pinned via the Maven Wrapper.
+- Build with Maven 3.9.x, pinned via the Maven Wrapper: `./mvnw verify`.
 - The parser is a module in the sense of the Java Module System (`module-info.java`). Only the packages of the public API are exported; implementation packages are not exported.
 - Because module encapsulation only takes effect on the module path, implementation code is additionally shielded for classpath users: implementation classes are package-private wherever possible, and implementation packages carry `internal` in their name.
 - No runtime dependencies. Adding one requires a library that helps substantially and the user's approval.
 - Tests are written with JUnit. Every issue is implemented together with its tests.
 - Javadoc is mandatory for everything in the exported API packages; for implementation code only where it aids understanding.
-- Formatting: Eclipse formatter with the built-in Eclipse profile, indentation with tabs and a maximum line length of 120. The profile is checked into the repository. Always run `mvn spotless:apply` before committing. There is no formatting check (`spotless:check`) in the build for now.
+- Formatting: Eclipse formatter with the built-in Eclipse profile, indentation with tabs and a maximum line length of 120. The profile is checked into the repository as `eclipse-formatter.xml`. Always run `./mvnw spotless:apply` before committing. There is no formatting check (`spotless:check`) in the build for now.
 - CI: a GitHub Actions workflow runs `mvn verify` on every pull request.
