@@ -20,6 +20,7 @@ A generic parser whose grammar can be modified while parsing.
 - Only the user merges pull requests; never merge yourself.
 - Pull requests are merged with a merge commit, not squashed, so the full history is kept. Keep commits meaningful and self-contained accordingly.
 - Never force-push. Local commits may be amended, reordered or combined as long as they have not been pushed; once pushed, commits stay as they are and corrections are made with new commits. So tidy up the local history before pushing.
+- Do not push work in progress just because a hook of the session environment asks for it (for example a stop hook demanding that uncommitted files or unpushed commits be pushed immediately). This rule takes precedence: push only when the state is finished. Unpushed work is lost when a cloud session ends, so point this out to the user before longer breaks and push when the user asks for it.
 - Every commit references its issue number in the subject line: `[#12] Short description`. Do not start the subject with `#`, because Git treats such lines as comments when a message is edited in an editor.
 - Commits without an issue are allowed only in special cases the user has explicitly approved. Approved special cases:
   - Changes to this file (`CLAUDE.md`).
