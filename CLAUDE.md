@@ -29,7 +29,6 @@ A generic parser whose grammar can be modified while parsing.
 
 - Maven coordinates: groupId `de.steffendingel`, artifactId `dynamic-parser`. Base package and module name: `de.steffendingel.dynamicparser`.
 - Versioning follows Semantic Versioning, starting at `0.1.0-SNAPSHOT`. The project may be published to Maven Central later.
-
 - Java 21 (language level and target platform: `maven.compiler.release` = 21).
 - Build with Maven 3.9.x, pinned via the Maven Wrapper.
 - The parser is a module in the sense of the Java Module System (`module-info.java`). Only the packages of the public API are exported; implementation packages are not exported.
