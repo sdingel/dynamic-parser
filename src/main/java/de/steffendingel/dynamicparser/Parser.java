@@ -1,5 +1,7 @@
 package de.steffendingel.dynamicparser;
 
+import de.steffendingel.dynamicparser.internal.EarleyParser;
+
 /**
  * Parses sequences of tokens according to a {@link Grammar} that can change while parsing.
  * <p>
@@ -11,6 +13,21 @@ package de.steffendingel.dynamicparser;
  * The behavior is specified in detail in {@code docs/architecture.md} in the source repository.
  */
 public interface Parser {
+
+	/**
+	 * Creates a parser for the given grammar.
+	 * <p>
+	 * <b>Implementation status:</b> The parser reads the complete input before it calls the first action, and actions
+	 * cannot change the grammar yet: {@link GrammarEditor#add(Rule)} and {@link GrammarEditor#remove(Rule)} throw an
+	 * {@link UnsupportedOperationException}.
+	 *
+	 * @param grammar the initial grammar of every parse run
+	 * @return a new parser
+	 * @throws NullPointerException if {@code grammar} is {@code null}
+	 */
+	static Parser create(Grammar grammar) {
+		return new EarleyParser(grammar);
+	}
 
 	/**
 	 * Parses a sequence of tokens.
