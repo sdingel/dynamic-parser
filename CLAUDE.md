@@ -19,11 +19,19 @@ A generic parser whose grammar can be modified while parsing.
 - One branch and one pull request per issue.
 - Only the user merges pull requests; never merge yourself.
 - Pull requests are merged with a merge commit, not squashed, so the full history is kept. Keep commits meaningful and self-contained accordingly.
-- Every commit references its issue number in the subject line: `#12: Short description`.
+- Never force-push. Local commits may be amended, reordered or combined as long as they have not been pushed; once pushed, commits stay as they are and corrections are made with new commits. So tidy up the local history before pushing.
+- Every commit references its issue number in the subject line: `[#12] Short description`. Do not start the subject with `#`, because Git treats such lines as comments when a message is edited in an editor.
 - Commits without an issue are allowed only in special cases the user has explicitly approved. Approved special cases:
   - Changes to this file (`CLAUDE.md`).
 - When an issue is completely implemented and all open questions to the user are resolved, create the pull request without being asked.
 - The pull request closes its issue automatically: put `Closes #12` in the description. If the pull request implements only part of the issue (which should be an exception), use `Refs #12` instead so the issue stays open.
+
+## Recording decisions
+
+- Decisions must not live only in the chat, because nothing is remembered between sessions. What is known comes from this file, the code and the issues.
+- The outcome of a design discussion is recorded in the corresponding issue, including the reasoning.
+- Fundamental architecture decisions (for example grammar formalism, parsing technique, API design) are additionally documented in `docs/architecture.md`.
+- General rules and conventions belong in this file.
 
 ## Technology
 
