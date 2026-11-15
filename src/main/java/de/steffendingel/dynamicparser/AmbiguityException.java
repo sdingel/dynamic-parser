@@ -7,8 +7,10 @@ import java.util.Objects;
  * Thrown when the input matches the grammar in more than one way: a section of the input that is part of the result can
  * be derived from a nonterminal in several different ways.
  * <p>
- * The actions of the matches within the ambiguous section are not called. {@link #position()} is the start position of
- * the ambiguous section.
+ * The exception is thrown as soon as it is certain that the section is part of the result and everything before it is
+ * certain as well. The actions of the matches before the section have been called by then, and also the actions of
+ * matches within the section that all the different ways begin with. {@link #position()} is the start position of the
+ * ambiguous section.
  */
 public final class AmbiguityException extends ParseException {
 

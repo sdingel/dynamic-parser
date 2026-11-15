@@ -128,8 +128,9 @@ not catch the exception, it aborts parsing like any other exception thrown by an
 ### 8. Ambiguity is an error
 
 Parsing fails with an `AmbiguityException` if the input matches the grammar in more than one way, that is, if a
-section of the input that is part of the result can be derived from a nonterminal in several ways. The actions of the
-matches within such a section are not called.
+section of the input that is part of the result can be derived from a nonterminal in several ways. When exactly the
+ambiguity is reported, and which actions have been called by then, is defined in
+[Confirmed matches](#confirmed-matches).
 
 Reason: actions are called exactly once and only for the result, so there must be exactly one result. A programming
 language that is ambiguous for the parser is ambiguous for its readers as well.
@@ -169,20 +170,55 @@ Product -> Product '*' Atom | Atom
 After `a + b` the match `Sum(a + b)` is complete. If `* c` follows, it is not part of the result: the result contains
 `Sum(a + (b * c))` instead. The action of `Sum(a + b)` must therefore not be called before the next token is known.
 
-**Definition.** A match is confirmed at a position if it is part of every valid parse tree of every sequence of tokens
-that begins with the tokens read up to that position, judged by the grammar in effect at that moment.
+### Readings
 
-Two requirements follow from decision 5:
+A **reading** is a complete interpretation of the input read so far that could take the next token or accept the end
+of the input. The parser pursues all readings at the same time. A reading is dropped as soon as the next token does
+not fit it. At the end of the input, the readings are the ones that accept the end.
 
-- **Safety:** the parser never calls the action of a match that is not confirmed.
-- **Order:** the parser calls the action of a confirmed match only after the actions of all matches that precede it
-  in bottom-up, left-to-right order.
+In the example, there are three readings after `a + b`: one in which the product `b` continues with `*`, one in
+which the sum `a + b` continues with `+`, and one in which the sum is complete and whatever encloses it continues.
+All three contain the matches of `a` and of `b`, only two of them contain `Sum(a + b)`.
 
-How early the parser *detects* that a match is confirmed is a property of the implementation. Because of strict
-timing (decision 7) this is observable: a grammar change fails if the parser detects the confirmation of the match
-only after reading further tokens. The exact criterion is therefore part of the specification and is defined together
-with the implementation (issue #5). It must at least cover the typical case that a match ends with a terminal after
-which no other interpretation of the input read so far remains, as with a declaration ending in `;`.
+Every reading determines a sequence of matches: the completed matches it contains, in the order in which their
+actions are called (decision 5).
+
+### Definition
+
+1. **Confirmed:** A match is confirmed when it is part of every remaining reading, with the same rule, the same
+   section of the input and the same parts.
+2. **Calling the action:** The action of a match is called as soon as the match is confirmed and all matches whose
+   actions come before it are confirmed as well. In other words: the actions that have been called at any time are
+   the matches that the sequences of all readings begin with. What lies to the left of a match must be certain;
+   what will be built above it may still be open.
+3. **Ambiguity:** Parsing fails with an `AmbiguityException` as soon as all remaining readings agree on everything
+   before a section of the input, all of them contain the section as a match of the same nonterminal, and they do
+   not agree on its structure. Before the failure, the actions of the matches that the sequences of all readings
+   begin with have been called. This includes matches within the ambiguous section that all its alternatives have
+   in common.
+
+Strict timing (decision 7) refers to point 2: an action that changes the grammar must be callable at the end of its
+match.
+
+Properties of this definition:
+
+- **No lookahead.** The parser does not check whether a reading can be completed later, only whether it could take a
+  next token. A reading that is stuck at a nonterminal without rules does not count.
+- **The end of the input is not known in advance.** After the last token, the parser first calls the actions that
+  are confirmed regardless of whether the input continues, and only then finds out that it ends.
+- **Actions before an error.** When parsing fails with a `SyntaxException` or an `AmbiguityException`, the actions of
+  the matches confirmed before that point have been called.
+- **Typical case.** After reading a token, if exactly one rule application has taken this token and is complete with
+  it, its match is confirmed. If exactly one rule application is waiting for this match and is completed by it as
+  well, its match is confirmed too, and so on upwards. Example: a declaration ending in `;`.
+
+Alternative considered and rejected: "exactly one rule can reduce the section, and there is exactly one path to the
+root".
+
+- Too weak in the first part: with `Type -> 'Integer' | 'Integer' '[' ']'`, after `Integer` exactly one rule reduces
+  the section and the path to the root is unique, but if `[` follows, this `Type` match is not part of the result.
+- Too strict in the second part: with `Stmts -> ε | Stmts Stmt` inside `Block -> '{' Stmts '}'`, the path to the root
+  is never unique after a statement (the list may end or continue), although the statement is certain.
 
 ## Public API
 
@@ -216,8 +252,8 @@ Design decisions of the API:
 - **`GrammarEditor.add` and `remove` return a `boolean`** like Java collections instead of failing if the rule is
   already present or absent.
 - **`GrammarEditor` and `Match` are only valid while their action is running.**
-- **Tokens are read lazily.** The parser reads the tokens one at a time and calls a grammar-changing action before
-  reading the token following its match (decision 7).
+- **Tokens are read lazily.** The parser reads the tokens one at a time, and only after it has called all actions
+  that can be called at the current position.
 
 ## Implementation
 
@@ -226,11 +262,12 @@ parser is created with `Parser.create(Grammar)`.
 
 ### Status
 
-The parser is implemented in three steps (issue #5). The first step is done:
+The parser is implemented in three steps (issue #5). The first two steps are done:
 
 1. **Fixed grammars (done).** The parser handles every context-free grammar and reports syntax errors and
    ambiguities.
-2. **Confirmed matches (open).** Until then, the parser reads the complete input before it calls the first action.
+2. **Confirmed matches (done).** The parser calls actions as early as the definition in
+   [Confirmed matches](#confirmed-matches) allows and reads the tokens one at a time.
 3. **Grammar changes (open).** Until then, `GrammarEditor.add` and `remove` throw an
    `UnsupportedOperationException`.
 
@@ -240,50 +277,83 @@ The parser is based on Earley's algorithm. Reason: it works directly on the rule
 grammar in advance, so the grammar can change between two positions; it handles every context-free grammar; and its
 central notion matches decision 6: an Earley item is a rule application that began at a certain position.
 
-A parse run has two phases.
+The input is processed token by token. At every position the parser performs three steps before it reads the next
+token.
 
-**Recognition (`Chart`).** For every position the parser computes the set of Earley items: all rule applications
+**1. Recognition (`Chart`).** The parser computes the set of Earley items of the position: all rule applications
 that are consistent with the tokens before that position, each with the position at which it began and the number of
-symbols matched so far. The set of the next position results from the items that can take the next token (scanning)
-and from everything that follows from them: the rules of the nonterminals that can begin there (prediction) and the
-items advanced by matches that end there (completion). If no item can take the next token, or if the input ends
-without a complete match of the start symbol, this is a syntax error; the terminals that the items of the current
-position expect are reported as the expected terminals.
+symbols matched so far. The set results from the items of the previous position that can take the token (scanning)
+and from everything that follows from them: the rules of the nonterminals that can begin here (prediction) and the
+items advanced by matches that end here (completion). If no item can take a token, or if the input ends without a
+complete match of the start symbol, this is a syntax error; the terminals that the items of the position expect are
+reported as the expected terminals.
 
 Empty rules need special care: an empty match can be completed before all items waiting for its nonterminal are
 known. An item that starts waiting for a nonterminal is therefore advanced immediately if an empty match of that
 nonterminal has already been completed at the same position.
 
-**Evaluation (`Evaluator`).** The chart only tells that the input matches, not how. The derivation is reconstructed
-from the chart from the top: for a nonterminal and a section, the parser looks up the rules that match the section
-and determines, from right to left, where the matches of the symbols of the right-hand side begin. Every step of this
-search is checked against the items in the chart, so the search never follows a path that leads nowhere. If there is
-more than one way, the section is ambiguous; the search stops at the second way found. Rules that can be nested in
-themselves without consuming input (`A -> A`) need no special treatment: they always yield a second way.
+**2. Analysis (`Analyzer`).** The parser determines what all readings have in common. In the chart, a reading ends
+at an item whose next symbol is a terminal, or at a complete match of the start symbol. The readings are not
+enumerated, because there can be exponentially many. Instead, the parser computes summaries for the position:
 
-The actions are called during a bottom-up, left-to-right traversal of the unique derivation. The traversal uses an
-explicit stack instead of recursion, because the depth of the result grows with the length of the input for
-recursive rules such as lists.
+- for every item, the *forest* of the section it has matched: one entry per matched symbol, where an entry is a
+  token, a match with a unique structure, or an ambiguous section;
+- for every nonterminal that can begin at the position, its *context*: what is known about all readings in which it
+  begins here. It follows from the items waiting for the nonterminal.
 
-Consequences of this approach in the current step:
+The summary of a reading that ends at an item is the context of the item's nonterminal at the position where the
+item began, followed by the forest the item has matched. This is sufficient because readings are composed freely:
+every way to reach an item can be combined with every way to continue from it. For the same reason the summaries of
+a position never change once they are computed.
 
-- If the input is ambiguous, the actions of the matches before the ambiguous section, in the order of the actions,
-  have already been called. If several sections are ambiguous, the first one in that order is reported, and of
-  nested ambiguous sections the outermost one.
-- If the input has a syntax error, no action has been called. This changes with the second step: actions of
-  confirmed matches will then have been called when a later syntax error is found.
-- The predicate of a terminal is called at most once per token.
+What two sets of readings have in common is determined by comparing forests (`Forests.commonPrefix`). A forest
+stands for a sequence: its tokens and matches, each match after everything it consists of, which is the order in
+which a bottom-up parser shifts tokens and reduces matches. What two forests have in common is the forest of the
+longest beginning that their sequences share. Example: `Sum(a + b)` and `Sum(a) + Product(b)` have
+`Sum(a) + Product(b)` in common, because the first forest contains the same matches and one more. Equal parts of
+forests are the same objects, so they are recognized without looking into them.
 
-### Not implemented: optimizations
+Usually the sequences of the readings of a context differ somewhere, and then it does not matter how the readings
+continue. The exception are readings whose complete sequence is the beginning of the sequences of all others; this
+happens when a nonterminal can begin at a position both before and after an empty match. A context therefore keeps
+such readings individually, up to a limit of four.
 
-The implementation is not optimized. In particular, right-recursive rules need time quadratic in the length of the
-input; Leo's optimization, which avoids that, is left for later because it complicates the reconstruction of
-derivations.
+**3. Execution (`Executor`).** The forest that all readings have in common contains the confirmed matches. The
+parser calls the actions of those that have not been called yet, bottom-up and from left to right. A match is
+identified by its content together with the forest before it; this distinguishes several empty matches with the same
+content at the same position. If the forest contains an ambiguous section, the parser calls the actions of the
+matches that all alternatives of the section begin with and then fails.
+
+At the end of the input the steps 2 and 3 are repeated for the readings that accept the end.
+
+### Limitations
+
+- **Sections that contain themselves.** With rules such as `A -> A`, a section can be matched in infinitely many
+  ways. Such a section is treated as ambiguous without determining what its alternatives have in common. If the
+  section is part of the result, parsing fails as specified. If it is only part of a reading that is dropped later,
+  matches within it that other readings contain as well are confirmed only when that reading is dropped, which is
+  later than the definition demands.
+- **More than four nested readings.** If more than four readings of a context have to be kept individually, the
+  others are combined. Matches can then be confirmed later than the definition demands. This requires more than four
+  empty matches in a row at one position that are each optional.
+- **Performance.** The implementation is not optimized. Lists defined by left-recursive rules and typical statements
+  and expressions take time linear in the length of the input. Right-recursive rules take quadratic time; Leo's
+  optimization, which avoids that, is left for later. Parser state for confirmed input is never discarded, so memory
+  grows with the length of the input.
+
+Both deviations from the definition are on the safe side: an action is never called for a match that is not
+confirmed.
+
+### Testing
+
+Besides tests for individual scenarios, `ParserReferenceTest` compares the parser with a simple reference
+implementation of the definition above, which enumerates all readings explicitly as the runs of a nondeterministic
+bottom-up parser. It checks the outcome and the time of every call of an action for several thousand random grammars
+and inputs.
 
 ## Open points
 
-- The exact criterion for detecting confirmed matches (see [Confirmed matches](#confirmed-matches)).
-- Steps two and three of the implementation (issue #5), see [Status](#status).
+- Step three of the implementation (issue #5), see [Status](#status).
 - Whether the behavior of left-recursive rules under grammar changes (decision 6) is the desired one.
 - Characters or tokens as terminals, and lexing in general (decision 3).
 - Operator precedence and associativity are not separate concepts so far; they have to be expressed in the rules.

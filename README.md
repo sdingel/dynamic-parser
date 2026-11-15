@@ -5,9 +5,8 @@ A generic parser for Java whose grammar can be modified while parsing.
 The parser is intended for extensible programming languages: languages in which new constructs can be defined
 within the language itself.
 
-**Status:** The parser works for grammars that do not change while parsing. Two parts of the specified behavior are
-still missing: actions cannot change the grammar yet, and all actions are called only after the complete input has
-been read.
+**Status:** The parser works for grammars that do not change while parsing, and it calls actions as early as
+specified. One part of the specified behavior is still missing: actions cannot change the grammar yet.
 
 ## What the parser does
 

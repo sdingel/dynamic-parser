@@ -16,7 +16,7 @@ import de.steffendingel.dynamicparser.Terminal;
 
 /**
  * The Earley items of one position, in the order in which they were added, together with the indexes needed to complete
- * items and to reconstruct derivations.
+ * items and with the results of the {@link Analyzer} for this position.
  */
 final class ItemSet {
 
@@ -27,11 +27,23 @@ final class ItemSet {
 	/** The items of this set that have the given nonterminal as their next symbol. */
 	private final Map<Nonterminal, List<Item>> waiting = new HashMap<>();
 
-	/** The nonterminals for which the rules have already been predicted at this position. */
-	private final Set<Nonterminal> predicted = new HashSet<>();
+	/** The nonterminals for which the rules have been predicted at this position. */
+	private final Set<Nonterminal> predicted = new LinkedHashSet<>();
 
 	/** The complete items of this set: nonterminal, then origin, then the rules of the complete items. */
-	private final Map<Nonterminal, Map<Integer, List<Rule>>> completed = new HashMap<>();
+	private final Map<Nonterminal, Map<Integer, List<Rule>>> completed = new LinkedHashMap<>();
+
+	/**
+	 * For the items that were advanced over a nonterminal: the positions at which the matches of that nonterminal
+	 * begin.
+	 */
+	private final Map<Item, Set<Integer>> childOrigins = new HashMap<>();
+
+	private final Map<Item, Inner> inners = new HashMap<>();
+
+	private final Map<Nonterminal, Map<Integer, Entry>> entries = new HashMap<>();
+
+	private final Map<Nonterminal, History> contexts = new HashMap<>();
 
 	/**
 	 * Adds an item unless it is already in this set.
@@ -86,6 +98,13 @@ final class ItemSet {
 	}
 
 	/**
+	 * Returns the nonterminals that can begin at this position, in the order in which they were predicted.
+	 */
+	Collection<Nonterminal> predicted() {
+		return predicted;
+	}
+
+	/**
 	 * Registers a complete item of this set.
 	 */
 	void addCompleted(Item item) {
@@ -99,6 +118,13 @@ final class ItemSet {
 	 */
 	boolean isCompleted(Nonterminal nonterminal, int origin) {
 		return completed.getOrDefault(nonterminal, Map.of()).containsKey(origin);
+	}
+
+	/**
+	 * Returns the nonterminals that have a match ending at the position of this set.
+	 */
+	Collection<Nonterminal> completedNonterminals() {
+		return completed.keySet();
 	}
 
 	/**
@@ -117,6 +143,21 @@ final class ItemSet {
 	}
 
 	/**
+	 * Registers that the given item of this set was advanced over a match of a nonterminal that begins at the given
+	 * position.
+	 */
+	void addChildOrigin(Item item, int origin) {
+		childOrigins.computeIfAbsent(item, key -> new LinkedHashSet<>()).add(origin);
+	}
+
+	/**
+	 * Returns the positions registered with {@link #addChildOrigin(Item, int)} for the given item.
+	 */
+	Collection<Integer> childOrigins(Item item) {
+		return childOrigins.getOrDefault(item, Set.of());
+	}
+
+	/**
 	 * Returns the terminals that are the next symbol of an item of this set, in the order of the items.
 	 */
 	Set<Terminal> expectedTerminals() {
@@ -127,5 +168,39 @@ final class ItemSet {
 			}
 		}
 		return expected;
+	}
+
+	// Results of the analyzer
+
+	Inner inner(Item item) {
+		return inners.get(item);
+	}
+
+	void putInner(Item item, Inner inner) {
+		inners.put(item, inner);
+	}
+
+	/**
+	 * Returns the entry for the section from the given position to the position of this set matched by the given
+	 * nonterminal, or {@code null} if it has not been determined.
+	 */
+	Entry entry(Nonterminal nonterminal, int origin) {
+		return entries.getOrDefault(nonterminal, Map.of()).get(origin);
+	}
+
+	void putEntry(Nonterminal nonterminal, int origin, Entry entry) {
+		entries.computeIfAbsent(nonterminal, key -> new HashMap<>()).put(origin, entry);
+	}
+
+	/**
+	 * Returns what is known about the readings in which the given nonterminal begins at this position, or {@code null}
+	 * if it has not been determined.
+	 */
+	History context(Nonterminal nonterminal) {
+		return contexts.get(nonterminal);
+	}
+
+	void putContext(Nonterminal nonterminal, History history) {
+		contexts.put(nonterminal, history);
 	}
 }
