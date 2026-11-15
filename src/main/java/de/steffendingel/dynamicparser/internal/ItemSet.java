@@ -39,6 +39,15 @@ final class ItemSet {
 	 */
 	private final Map<Item, Set<Integer>> childOrigins = new HashMap<>();
 
+	/** The rules predicted at this position by their left-hand side, as items. */
+	private final Map<Nonterminal, List<Item>> predictions = new HashMap<>();
+
+	/**
+	 * For the items this set was created with after a change of the grammar: the forest of the section they have
+	 * matched.
+	 */
+	private final Map<Item, Cell> inherited = new HashMap<>();
+
 	private final Map<Item, Inner> inners = new HashMap<>();
 
 	private final Map<Nonterminal, Map<Integer, Entry>> entries = new HashMap<>();
@@ -102,6 +111,35 @@ final class ItemSet {
 	 */
 	Collection<Nonterminal> predicted() {
 		return predicted;
+	}
+
+	/**
+	 * Registers an item that begins a rule at this position.
+	 */
+	void addPrediction(Item item) {
+		predictions.computeIfAbsent(item.rule().lhs(), key -> new ArrayList<>()).add(item);
+	}
+
+	/**
+	 * Returns the items registered with {@link #addPrediction(Item)} for the given nonterminal.
+	 */
+	List<Item> predictions(Nonterminal nonterminal) {
+		return predictions.getOrDefault(nonterminal, List.of());
+	}
+
+	/**
+	 * Registers the forest of the section matched by an item this set is created with.
+	 */
+	void putInherited(Item item, Cell forest) {
+		inherited.put(item, forest);
+	}
+
+	boolean hasInherited(Item item) {
+		return inherited.containsKey(item);
+	}
+
+	Cell inherited(Item item) {
+		return inherited.get(item);
 	}
 
 	/**

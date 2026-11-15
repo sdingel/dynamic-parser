@@ -19,7 +19,7 @@ import de.steffendingel.dynamicparser.Rule;
  */
 final class Forests {
 
-	private record NodeKey(Rule rule, int start, int end, List<Entry> children) {
+	private record NodeKey(Rule rule, int start, int end, int origin, List<Entry> children) {
 	}
 
 	private record AmbiguousKey(Nonterminal symbol, int start, int end) {
@@ -43,9 +43,24 @@ final class Forests {
 		return tokens.get(position);
 	}
 
-	Node node(Rule rule, int start, int end, List<Entry> children) {
-		return nodes.computeIfAbsent(new NodeKey(rule, start, end, children),
-				key -> new Node(rule, start, end, children));
+	Node node(Rule rule, int start, int end, int origin, List<Entry> children) {
+		return nodes.computeIfAbsent(new NodeKey(rule, start, end, origin, children),
+				key -> new Node(rule, start, end, origin, children));
+	}
+
+	/**
+	 * Returns the last {@code count} entries of the given forest as a forest of their own.
+	 */
+	Cell top(Cell forest, int count) {
+		Cell base = forest;
+		for (int i = 0; i < count; i++) {
+			base = base.below;
+		}
+		Cell result = null;
+		for (Entry entry : entriesAbove(forest, base)) {
+			result = push(result, entry);
+		}
+		return result;
 	}
 
 	AmbiguousNode ambiguous(Nonterminal symbol, int start, int end) {

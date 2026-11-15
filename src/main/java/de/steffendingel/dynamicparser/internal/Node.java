@@ -20,12 +20,16 @@ final class Node implements Entry {
 
 	final int end;
 
+	/** The index of the item set in which the application of the rule began. */
+	final int origin;
+
 	final List<Entry> children;
 
-	Node(Rule rule, int start, int end, List<Entry> children) {
+	Node(Rule rule, int start, int end, int origin, List<Entry> children) {
 		this.rule = rule;
 		this.start = start;
 		this.end = end;
+		this.origin = origin;
 		this.children = children;
 	}
 

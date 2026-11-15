@@ -102,6 +102,15 @@ It follows:
 - The definition also covers several matches at the same position, for example empty matches: what counts is their
   order in the result.
 
+A change exists from the moment the action is called:
+
+- **Uncalled actions change nothing.** As long as a match is not confirmed, its action has not been called, and the
+  input after the match is interpreted with the grammar as it is. If the match is confirmed later, decision 7
+  applies.
+- **Called actions are binding.** Once an action has been called, its match is part of the result. Interpretations of
+  the input that do not contain the match are no longer considered, even if a later change of the grammar would make
+  them possible. Otherwise an action could have been called for a match that is not part of the result (decision 5).
+
 Consequence for left recursion: a match of a left-recursive rule such as `List -> List Element` begins where the list
 begins. The rule therefore stays applicable to a list that has already begun after it is removed, and a newly added
 left-recursive rule cannot extend a list that has already begun. Whether this is the desired behavior is open.
@@ -203,7 +212,14 @@ match.
 Properties of this definition:
 
 - **No lookahead.** The parser does not check whether a reading can be completed later, only whether it could take a
-  next token. A reading that is stuck at a nonterminal without rules does not count.
+  next token.
+- **Interpretations waiting for rules.** An interpretation that is stuck at a nonterminal without rules cannot take a
+  token, so it is not a reading and does not prevent confirmation. There is one exception: if no interpretation can
+  take a token or accept the end of the input, the interpretations that are stuck at a nonterminal without rules are
+  the readings. Reason: the input can then only continue if an action adds rules, and this makes it possible that the
+  action of a match adds the only rule with which the input continues, for example a function header that
+  introduces what its body may contain. If the input can continue without such a rule, an interpretation waiting for
+  it only comes back when the rule is added by an action of a match that the interpretation contains.
 - **The end of the input is not known in advance.** After the last token, the parser first calls the actions that
   are confirmed regardless of whether the input continues, and only then finds out that it ends.
 - **Actions before an error.** When parsing fails with a `SyntaxException` or an `AmbiguityException`, the actions of
@@ -262,14 +278,7 @@ parser is created with `Parser.create(Grammar)`.
 
 ### Status
 
-The parser is implemented in three steps (issue #5). The first two steps are done:
-
-1. **Fixed grammars (done).** The parser handles every context-free grammar and reports syntax errors and
-   ambiguities.
-2. **Confirmed matches (done).** The parser calls actions as early as the definition in
-   [Confirmed matches](#confirmed-matches) allows and reads the tokens one at a time.
-3. **Grammar changes (open).** Until then, `GrammarEditor.add` and `remove` throw an
-   `UnsupportedOperationException`.
+The specification is implemented completely (issue #5), apart from the [limitations](#limitations) below.
 
 ### Algorithm
 
@@ -278,7 +287,7 @@ grammar in advance, so the grammar can change between two positions; it handles 
 central notion matches decision 6: an Earley item is a rule application that began at a certain position.
 
 The input is processed token by token. At every position the parser performs three steps before it reads the next
-token.
+token, and repeats them whenever an action has changed the grammar.
 
 **1. Recognition (`Chart`).** The parser computes the set of Earley items of the position: all rule applications
 that are consistent with the tokens before that position, each with the position at which it began and the number of
@@ -326,6 +335,29 @@ matches that all alternatives of the section begin with and then fails.
 
 At the end of the input the steps 2 and 3 are repeated for the readings that accept the end.
 
+**Changes of the grammar (`Commitments`).** When an action changes the grammar, the execution stops, and the item set
+of the position is built again with the new rules. The previous item set stays in the chart, because the items of
+rule applications that began there refer to it; an item set is therefore identified by its index in the chart, not
+by its position. The new item set does not start from all items of the previous one, but only from the items that
+are *valid* for the forest of the matches called so far: the items of rule applications whose matched symbols are
+exactly the last entries of that forest and that are themselves waited for by valid items. This is the item set a
+deterministic bottom-up parser would be in after shifting the tokens and reducing the matches of the forest. It
+realizes both parts of decision 6:
+
+- Rules that could begin after the match are predicted again, now with the new grammar. Rule applications that
+  began before are kept, also those of removed rules.
+- Interpretations that do not contain a called match are not valid for the forest and therefore do not come back,
+  even if the new rules would allow them to continue.
+
+For the items the parser continues with, it is known exactly which items wait for their match and what precedes them:
+the forest before their rule application. This knowledge replaces the summaries of step 2 for them, because those
+summaries also cover interpretations that are no longer possible, and it is passed on to the waiting items when the
+match is completed.
+
+Afterwards the steps 2 and 3 are repeated. Actions that have been called are not called again; matches that were
+confirmed before the change but whose actions have not been called yet are confirmed again only if they are part of
+every reading with the new grammar.
+
 ### Limitations
 
 - **Sections that contain themselves.** With rules such as `A -> A`, a section can be matched in infinitely many
@@ -336,24 +368,31 @@ At the end of the input the steps 2 and 3 are repeated for the readings that acc
 - **More than four nested readings.** If more than four readings of a context have to be kept individually, the
   others are combined. Matches can then be confirmed later than the definition demands. This requires more than four
   empty matches in a row at one position that are each optional.
+- **Nested rule applications at one position.** If, after a change of the grammar, applications of the same rule
+  that began in the same item set are valid at two different depths, which requires a rule that contains itself
+  behind empty matches, the knowledge about the last one is used for both.
 - **Performance.** The implementation is not optimized. Lists defined by left-recursive rules and typical statements
   and expressions take time linear in the length of the input. Right-recursive rules take quadratic time; Leo's
   optimization, which avoids that, is left for later. Parser state for confirmed input is never discarded, so memory
   grows with the length of the input.
+- **Many rules for one nonterminal.** Wherever a nonterminal can begin, the parser creates an item for each of its
+  rules. If every declared name is a rule, time and memory grow with the product of the number of declarations and
+  the number of places where a name can be used: in a measurement, 2,000 declarations with one use each took 1.4
+  seconds, and 8,000 exceeded the available memory.
 
-Both deviations from the definition are on the safe side: an action is never called for a match that is not
-confirmed.
+The first two limitations are deviations from the definition on the safe side: an action is never called for a
+match that is not confirmed.
 
 ### Testing
 
 Besides tests for individual scenarios, `ParserReferenceTest` compares the parser with a simple reference
 implementation of the definition above, which enumerates all readings explicitly as the runs of a nondeterministic
 bottom-up parser. It checks the outcome and the time of every call of an action for several thousand random grammars
-and inputs.
+and inputs. In about half of the grammars, actions add and remove rules.
 
 ## Open points
 
-- Step three of the implementation (issue #5), see [Status](#status).
+- The cost of many rules for one nonterminal, see [Limitations](#limitations).
 - Whether the behavior of left-recursive rules under grammar changes (decision 6) is the desired one.
 - Characters or tokens as terminals, and lexing in general (decision 3).
 - Operator precedence and associativity are not separate concepts so far; they have to be expressed in the rules.

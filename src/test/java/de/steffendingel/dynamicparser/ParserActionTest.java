@@ -210,20 +210,6 @@ class ParserActionTest {
 	}
 
 	@Test
-	void grammarEditorDoesNotSupportChangesYet() throws ParseException {
-		Rule other = new Rule(a, List.of(y));
-		Rule rule = new Rule(s, List.of(x), match -> {
-			assertThrows(UnsupportedOperationException.class, () -> match.grammar().add(other));
-			assertThrows(UnsupportedOperationException.class, () -> match.grammar().remove(other));
-			assertThrows(NullPointerException.class, () -> match.grammar().add(null));
-			assertThrows(NullPointerException.class, () -> match.grammar().remove(null));
-			return null;
-		});
-
-		Parser.create(new Grammar(s, rule)).parse(tokens("x"));
-	}
-
-	@Test
 	void grammarEditorCannotBeUsedAfterTheActionHasReturned() throws ParseException {
 		AtomicReference<GrammarEditor> editor = new AtomicReference<>();
 		Rule rule = new Rule(s, List.of(x), match -> {

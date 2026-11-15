@@ -1,6 +1,7 @@
 package de.steffendingel.dynamicparser;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
@@ -13,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class ReadmeExampleTest {
 
 	@Test
-	void exampleGrammarCanBeCreatedAndParsesTheEmptyProgram() throws ParseException {
+	void exampleParsesDeclaredNamesAndRejectsUndeclaredOnes() throws ParseException {
 		// A tiny language: "var x ;" declares a name, "print x ;" uses a declared name.
 		// Tokens are strings.
 		Nonterminal program = new Nonterminal("Program");
@@ -46,10 +47,12 @@ class ReadmeExampleTest {
 		Grammar grammar = new Grammar(program, noStatements, moreStatements, declaration, printStatement);
 
 		Parser parser = Parser.create(grammar);
-		Object result = parser.parse(List.of()); // the empty program: a ParseNode of the rule "Program -> ε"
+		Object result = parser.parse(List.of("var", "x", ";", "print", "x", ";")); // the parse tree
 
-		assertEquals(new ParseNode(noStatements, 0, 0, List.of()), result);
-		// Changing the grammar from an action is not implemented yet.
-		assertThrows(UnsupportedOperationException.class, () -> parser.parse(List.of("var", "x", ";")));
+		assertInstanceOf(ParseNode.class, result);
+		assertEquals(6, ((ParseNode) result).end());
+		// y is not declared
+		SyntaxException exception = assertThrows(SyntaxException.class, () -> parser.parse(List.of("print", "y", ";")));
+		assertEquals(1, exception.position());
 	}
 }
