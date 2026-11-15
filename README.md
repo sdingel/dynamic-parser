@@ -5,8 +5,8 @@ A generic parser for Java whose grammar can be modified while parsing.
 The parser is intended for extensible programming languages: languages in which new constructs can be defined
 within the language itself.
 
-**Status:** The parser works for grammars that do not change while parsing, and it calls actions as early as
-specified. One part of the specified behavior is still missing: actions cannot change the grammar yet.
+**Status:** The specified behavior is implemented. The parser is experimental and not optimized: in particular, a
+grammar with one rule per declared name becomes slow with thousands of declarations.
 
 ## What the parser does
 
@@ -64,18 +64,12 @@ Rule printStatement = new Rule(statement, List.of(print, expression, semicolon))
 Grammar grammar = new Grammar(program, noStatements, moreStatements, declaration, printStatement);
 ```
 
-A parser is created from the grammar and can then parse any number of inputs:
+A parser is created from the grammar and can then parse any number of inputs. The rules added while parsing
+belong to one parse run:
 
 ```java
 Parser parser = Parser.create(grammar);
-Object result = parser.parse(List.of()); // the empty program: a ParseNode of the rule "Program -> ε"
-```
-
-Changing the grammar from an action is not implemented yet, so the declaration above currently fails with an
-`UnsupportedOperationException`. Once it is implemented, the example behaves like this:
-
-```java
-parser.parse(List.of("var", "x", ";", "print", "x", ";")); // returns the parse tree
+Object result = parser.parse(List.of("var", "x", ";", "print", "x", ";")); // the parse tree
 parser.parse(List.of("print", "y", ";")); // throws SyntaxException: y is not declared
 ```
 
