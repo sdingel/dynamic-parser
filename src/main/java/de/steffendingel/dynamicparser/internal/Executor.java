@@ -7,7 +7,6 @@ import java.util.Deque;
 import java.util.List;
 
 import de.steffendingel.dynamicparser.AmbiguityException;
-import de.steffendingel.dynamicparser.Grammar;
 
 /**
  * Calls the actions of confirmed matches, each one once, in bottom-up, left-to-right order.
@@ -43,25 +42,39 @@ final class Executor {
 		}
 	}
 
-	private final Grammar grammar;
+	private final RunGrammar grammar;
 
 	private final Chart chart;
 
 	private final Forests forests;
 
-	Executor(Grammar grammar, Chart chart, Forests forests) {
+	/** The forest that ends with the match whose action was called last. */
+	private Cell last;
+
+	Executor(RunGrammar grammar, Chart chart, Forests forests) {
 		this.grammar = grammar;
 		this.chart = chart;
 		this.forests = forests;
 	}
 
 	/**
-	 * Calls the actions of all matches in the given forest that have not been called yet.
+	 * Returns the forest of all matches whose actions have been called, and of the tokens before and between them. Its
+	 * last entry is the match whose action was called last.
+	 */
+	Cell last() {
+		return last;
+	}
+
+	/**
+	 * Calls the actions of the matches in the given forest that have not been called yet, until one of them changes the
+	 * grammar.
 	 *
+	 * @return {@code true} if an action has changed the grammar. The remaining actions have not been called then,
+	 *         because the forest was determined with the grammar before the change.
 	 * @throws AmbiguityException if the forest contains an ambiguous section; the actions of the matches before it, and
 	 *                            of the matches that all ways of matching the section begin with, have been called
 	 */
-	void run(Cell forest) throws AmbiguityException {
+	boolean run(Cell forest) throws AmbiguityException {
 		// Forests share their cells, so the part of the forest that is already settled is found without looking at
 		// its entries.
 		List<Cell> cells = new ArrayList<>();
@@ -70,18 +83,23 @@ final class Executor {
 		}
 		Collections.reverse(cells);
 		for (Cell cell : cells) {
-			run(new Visit(cell));
+			if (run(new Visit(cell))) {
+				return true;
+			}
 			cell.settled = true;
 		}
+		return false;
 	}
 
 	/**
 	 * Calls the actions of a match and of the matches within it that have not been called yet. An explicit stack is
 	 * used instead of recursion, because matches can be nested as deeply as the input is long.
+	 *
+	 * @return {@code true} if an action has changed the grammar
 	 */
-	private void run(Visit root) throws AmbiguityException {
+	private boolean run(Visit root) throws AmbiguityException {
 		if (root.cell.called || root.cell.entry instanceof TokenEntry) {
-			return;
+			return false;
 		}
 		Deque<Visit> stack = new ArrayDeque<>();
 		stack.push(root);
@@ -101,7 +119,11 @@ final class Executor {
 			} else {
 				stack.pop();
 				switch (visit.cell.entry) {
-				case Node node -> call(visit.cell, node, visit.values);
+				case Node node -> {
+					if (call(visit.cell, node, visit.values)) {
+						return true;
+					}
+				}
 				case AmbiguousNode ambiguous ->
 					throw new AmbiguityException(ambiguous.symbol, ambiguous.start, ambiguous.end);
 				case TokenEntry token -> throw new IllegalStateException("A token has no parts");
@@ -111,16 +133,25 @@ final class Executor {
 				}
 			}
 		}
+		return false;
 	}
 
-	private void call(Cell cell, Node node, List<Object> values) {
-		FixedGrammarEditor editor = new FixedGrammarEditor(grammar);
+	/**
+	 * Calls the action of a match.
+	 *
+	 * @return {@code true} if the action has changed the grammar
+	 */
+	private boolean call(Cell cell, Node node, List<Object> values) {
+		int changes = grammar.changes();
+		RunEditor editor = new RunEditor(grammar, node.rule, node.end, chart.position());
 		try {
 			cell.value = node.rule.action().apply(
 					new MatchImpl(node.rule, node.start, node.end, Collections.unmodifiableList(values), editor));
 			cell.called = true;
+			last = cell;
 		} finally {
 			editor.close();
 		}
+		return grammar.changes() != changes;
 	}
 }

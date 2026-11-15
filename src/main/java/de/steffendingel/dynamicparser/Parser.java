@@ -16,9 +16,6 @@ public interface Parser {
 
 	/**
 	 * Creates a parser for the given grammar.
-	 * <p>
-	 * <b>Implementation status:</b> Actions cannot change the grammar yet: {@link GrammarEditor#add(Rule)} and
-	 * {@link GrammarEditor#remove(Rule)} throw an {@link UnsupportedOperationException}.
 	 *
 	 * @param grammar the initial grammar of every parse run
 	 * @return a new parser

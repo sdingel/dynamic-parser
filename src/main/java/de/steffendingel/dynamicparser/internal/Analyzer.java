@@ -10,6 +10,7 @@ import java.util.Set;
 
 import de.steffendingel.dynamicparser.Nonterminal;
 import de.steffendingel.dynamicparser.Rule;
+import de.steffendingel.dynamicparser.Symbol;
 import de.steffendingel.dynamicparser.Terminal;
 
 /**
@@ -33,7 +34,10 @@ import de.steffendingel.dynamicparser.Terminal;
  */
 final class Analyzer {
 
-	/** A nonterminal and the position at which a match of it begins. The match ends at the analyzed position. */
+	/**
+	 * A nonterminal and the index of the item set in which a match of it begins. The match ends in the analyzed item
+	 * set.
+	 */
 	private record Section(Nonterminal symbol, int origin) {
 	}
 
@@ -43,45 +47,60 @@ final class Analyzer {
 
 	private final Nonterminal start;
 
-	Analyzer(Chart chart, Forests forests, Nonterminal start) {
+	private final Commitments commitments;
+
+	Analyzer(Chart chart, Forests forests, Nonterminal start, Commitments commitments) {
 		this.chart = chart;
 		this.forests = forests;
 		this.start = start;
+		this.commitments = commitments;
 	}
 
 	/**
-	 * Computes the summaries of the given position. The item set of the position must be complete, and all positions
+	 * Computes the summaries of the item set with the given index. The item set must be complete, and all item sets
 	 * before it must have been analyzed.
 	 */
-	void analyze(int position) {
-		ItemSet set = chart.set(position);
-		computeEntries(set, position);
+	void analyze(int index) {
+		ItemSet set = chart.set(index);
+		computeEntries(set, index);
 		for (int i = 0; i < set.size(); i++) {
-			inner(set, position, set.get(i));
+			inner(set, index, set.get(i));
 		}
-		computeContexts(set, position);
+		computeContexts(set, index);
 	}
 
 	/**
-	 * Returns what is known about the readings at the given position, or {@code null} if there is no reading. The
-	 * confirmed matches are the ones in the forest that all readings have in common, see {@link History#common()}.
+	 * Returns what is known about the readings that end in the item set with the given index, or {@code null} if there
+	 * is no reading. The confirmed matches are the ones in the forest that all readings have in common, see
+	 * {@link History#common()}.
 	 *
-	 * @param endOfInput whether the input ends at the position; the only readings are then the ones in which the input
-	 *                   read so far is a complete match of the start symbol
+	 * @param endOfInput whether the input ends here; the only readings are then the ones in which the input read so far
+	 *                   is a complete match of the start symbol
 	 */
-	History common(int position, boolean endOfInput) {
-		ItemSet set = chart.set(position);
+	History common(int index, boolean endOfInput) {
+		ItemSet set = chart.set(index);
 		History common = null;
 		if (!endOfInput) {
 			for (int i = 0; i < set.size(); i++) {
 				Item item = set.get(i);
 				if (!item.isComplete() && item.next() instanceof Terminal) {
-					common = merge(common, history(set, position, item));
+					common = merge(common, history(set, index, item));
 				}
 			}
 		}
 		if (set.isCompleted(start, 0)) {
 			common = merge(common, History.single(forests.push(null, set.entry(start, 0))));
+		}
+		if (common == null && !endOfInput) {
+			// The input cannot continue with the current rules. It can only continue if an action adds rules for a
+			// nonterminal that has none, so the interpretations waiting for such a nonterminal are the readings.
+			for (int i = 0; i < set.size(); i++) {
+				Item item = set.get(i);
+				if (!item.isComplete() && item.next() instanceof Nonterminal nonterminal
+						&& set.predictions(nonterminal).isEmpty()) {
+					common = merge(common, history(set, index, item));
+				}
+			}
 		}
 		return common;
 	}
@@ -96,7 +115,7 @@ final class Analyzer {
 	 * input (for example for right-recursive rules). A section that depends on itself contains itself and can therefore
 	 * be matched in infinitely many ways; it is ambiguous.
 	 */
-	private void computeEntries(ItemSet set, int position) {
+	private void computeEntries(ItemSet set, int index) {
 		record Pending(Section section, List<Section> dependencies, int[] next) {
 		}
 		Set<Section> inProgress = new HashSet<>();
@@ -109,7 +128,7 @@ final class Analyzer {
 					continue;
 				}
 				inProgress.add(first);
-				stack.push(new Pending(first, dependencies(set, position, first), new int[1]));
+				stack.push(new Pending(first, dependencies(set, index, first), new int[1]));
 				while (!stack.isEmpty()) {
 					Pending pending = stack.peek();
 					Section required = null;
@@ -126,11 +145,11 @@ final class Analyzer {
 					}
 					if (required != null) {
 						inProgress.add(required);
-						stack.push(new Pending(required, dependencies(set, position, required), new int[1]));
+						stack.push(new Pending(required, dependencies(set, index, required), new int[1]));
 					} else {
 						stack.pop();
 						Section section = pending.section();
-						Entry entry = createEntry(set, position, section, cyclic.contains(section));
+						Entry entry = createEntry(set, index, section, cyclic.contains(section));
 						set.putEntry(section.symbol(), section.origin(), entry);
 						inProgress.remove(section);
 					}
@@ -142,7 +161,7 @@ final class Analyzer {
 	/**
 	 * Returns the sections ending at the position whose entries are needed to determine the entry of the given section.
 	 */
-	private List<Section> dependencies(ItemSet set, int position, Section section) {
+	private List<Section> dependencies(ItemSet set, int index, Section section) {
 		List<Section> dependencies = new ArrayList<>();
 		Deque<Item> items = new ArrayDeque<>();
 		Set<Item> visited = new HashSet<>();
@@ -157,7 +176,7 @@ final class Analyzer {
 			}
 			for (int childOrigin : set.childOrigins(item)) {
 				dependencies.add(new Section(child, childOrigin));
-				if (childOrigin == position) {
+				if (childOrigin == index) {
 					// The match of the child is empty, so the item before it belongs to this position as well.
 					items.push(previous(item));
 				}
@@ -166,20 +185,22 @@ final class Analyzer {
 		return dependencies;
 	}
 
-	private Entry createEntry(ItemSet set, int position, Section section, boolean cyclic) {
+	private Entry createEntry(ItemSet set, int index, Section section, boolean cyclic) {
 		Nonterminal symbol = section.symbol();
 		int origin = section.origin();
 		List<Rule> rules = set.completedRules(symbol, origin);
+		int startPosition = chart.position(origin);
+		int endPosition = chart.position(index);
 		if (cyclic) {
-			return forests.ambiguous(symbol, origin, position);
+			return forests.ambiguous(symbol, startPosition, endPosition);
 		}
 		Cell common = null;
 		for (int i = 0; i < rules.size(); i++) {
 			Rule rule = rules.get(i);
-			Inner inner = inner(set, position, new Item(rule, rule.rhs().size(), origin));
+			Inner inner = inner(set, index, new Item(rule, rule.rhs().size(), origin));
 			Cell alternative = inner.forest();
 			if (inner.exact()) {
-				Node node = forests.node(rule, origin, position, Forests.entries(inner.forest()));
+				Node node = forests.node(rule, startPosition, endPosition, origin, Forests.entries(inner.forest()));
 				if (rules.size() == 1) {
 					return node;
 				}
@@ -187,7 +208,7 @@ final class Analyzer {
 			}
 			common = i == 0 ? alternative : forests.commonPrefix(common, alternative);
 		}
-		AmbiguousNode ambiguous = forests.ambiguous(symbol, origin, position);
+		AmbiguousNode ambiguous = forests.ambiguous(symbol, startPosition, endPosition);
 		ambiguous.common = common;
 		return ambiguous;
 	}
@@ -196,50 +217,72 @@ final class Analyzer {
 	 * Returns the entry of a section that ends at the position. While the entry of a section is being determined, it
 	 * can be requested by a section within it; the section is then ambiguous.
 	 */
-	private Entry entry(ItemSet set, int position, Nonterminal symbol, int origin) {
+	private Entry entry(ItemSet set, int index, Nonterminal symbol, int origin) {
 		Entry entry = set.entry(symbol, origin);
-		return entry != null ? entry : forests.ambiguous(symbol, origin, position);
+		return entry != null ? entry : forests.ambiguous(symbol, chart.position(origin), chart.position(index));
 	}
 
 	// Sections matched by the items of the position
 
-	private Inner inner(ItemSet set, int position, Item item) {
+	private Inner inner(ItemSet set, int index, Item item) {
 		Inner inner = set.inner(item);
 		if (inner == null) {
-			inner = computeInner(set, position, item);
+			inner = computeInner(set, index, item);
 			set.putInner(item, inner);
 		}
 		return inner;
 	}
 
-	private Inner computeInner(ItemSet set, int position, Item item) {
+	private Inner computeInner(ItemSet set, int index, Item item) {
 		if (item.dot() == 0) {
 			return Inner.EMPTY;
 		}
 		Item previous = previous(item);
-		if (!(item.rule().rhs().get(item.dot() - 1) instanceof Nonterminal child)) {
-			// The item was advanced over the last token.
-			Inner before = chart.set(position - 1).inner(previous);
-			return before.exact() ? new Inner(forests.push(before.forest(), forests.token(position - 1)), true)
+		// The ways in which the item has matched its section: the forest of each way if it is unique, otherwise the
+		// forest that the ways covered by it begin with.
+		List<Cell> ways = new ArrayList<>();
+		boolean exact = true;
+		Symbol last = item.rule().rhs().get(item.dot() - 1);
+		if (set.hasInherited(item)) {
+			// The set was created with this item after a change of the grammar; what it has matched is known.
+			ways.add(set.inherited(item));
+		} else if (last instanceof Terminal) {
+			// The item was advanced over the last token, from the item set before this one.
+			Inner before = inner(index - 1, previous);
+			return before.exact()
+					? new Inner(forests.push(before.forest(), forests.token(chart.position(index) - 1)), true)
 					: before;
 		}
-		// The item was advanced over a match of the nonterminal. If such matches begin at several positions, the
-		// section is ambiguous.
-		Cell forest = null;
-		boolean exact = true;
-		boolean first = true;
-		for (int childOrigin : set.childOrigins(item)) {
-			Inner before = childOrigin == position ? inner(set, position, previous)
-					: chart.set(childOrigin).inner(previous);
-			Cell alternative = before.forest();
-			if (before.exact()) {
-				alternative = forests.push(alternative, entry(set, position, child, childOrigin));
+		if (last instanceof Nonterminal child) {
+			// The item was advanced over matches of the nonterminal, one for each item set in which they begin.
+			for (int childOrigin : set.childOrigins(item)) {
+				Inner before = childOrigin == index ? inner(set, index, previous) : inner(childOrigin, previous);
+				Cell way = before.forest();
+				if (before.exact()) {
+					way = forests.push(way, entry(set, index, child, childOrigin));
+					if (ways.contains(way)) {
+						// The same way has been found twice, which can happen after a change of the grammar.
+						continue;
+					}
+				}
+				exact &= before.exact();
+				ways.add(way);
 			}
-			forest = first ? alternative : forests.commonPrefix(forest, alternative);
-			exact = first && before.exact();
-			first = false;
 		}
-		return new Inner(forest, exact);
+		// If there are several ways, the section is ambiguous.
+		Cell common = ways.get(0);
+		for (Cell way : ways) {
+			common = forests.commonPrefix(common, way);
+		}
+		return new Inner(common, exact && ways.size() == 1);
+	}
+
+	/**
+	 * Returns the section matched by an item of an earlier item set.
+	 */
+	private Inner inner(int index, Item item) {
+		Inner known = commitments.inner(item, index);
+		return known != null ? known : chart.set(index).inner(item);
 	}
 
 	private static Item previous(Item item) {
@@ -254,17 +297,17 @@ final class Analyzer {
 	 * recursive rules, so the contexts depend on each other. They are determined by repeating the computation until
 	 * nothing changes.
 	 */
-	private void computeContexts(ItemSet set, int position) {
+	private void computeContexts(ItemSet set, int index) {
 		boolean changed = true;
 		for (int round = 0; changed; round++) {
 			if (round > 1000) {
-				throw new IllegalStateException("The contexts at position " + position + " do not become stable");
+				throw new IllegalStateException("The contexts at index " + index + " do not become stable");
 			}
 			changed = false;
 			for (Nonterminal nonterminal : set.predicted()) {
-				History context = position == 0 && nonterminal == start ? History.ROOT : null;
+				History context = index == 0 && nonterminal == start ? History.ROOT : null;
 				for (Item waiting : set.waiting(nonterminal)) {
-					context = merge(context, history(set, position, waiting));
+					context = merge(context, history(set, index, waiting));
 				}
 				if (context != null && !context.equals(set.context(nonterminal))) {
 					set.putContext(nonterminal, context);
@@ -278,8 +321,11 @@ final class Analyzer {
 	 * Returns what is known about the readings that lead to the given item of the position, or {@code null} if this is
 	 * not known yet.
 	 */
-	private History history(ItemSet set, int position, Item item) {
-		History context = chart.set(item.origin()).context(item.rule().lhs());
+	private History history(ItemSet set, int index, Item item) {
+		History context = commitments.context(item);
+		if (context == null) {
+			context = chart.set(item.origin()).context(item.rule().lhs());
+		}
 		if (context == null) {
 			return null;
 		}

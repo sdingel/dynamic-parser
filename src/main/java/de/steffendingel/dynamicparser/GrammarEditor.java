@@ -9,6 +9,10 @@ package de.steffendingel.dynamicparser;
  * <li>A removed rule begins no new matches from that position on. Matches of the rule that have already begun are
  * completed.</li>
  * </ul>
+ * A change exists from the moment the action makes it. Calling an action is binding: its match is part of the result,
+ * and interpretations of the input that do not contain it are no longer considered, even if a rule added later would
+ * make them possible.
+ * <p>
  * Changes belong to the running parse only. They do not modify the {@link Grammar} the parser was created with, and
  * they are discarded when the parse ends.
  * <p>
