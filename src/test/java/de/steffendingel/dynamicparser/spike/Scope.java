@@ -30,8 +30,7 @@ final class Scope {
 
 	/**
 	 * Rules that are shadowed by a rule with the same key in an inner scope. The plain scope chain has no shadowing:
-	 * the rules of all enclosing scopes apply. This was needed for the return statement, see
-	 * {@link ExampleLanguage}.
+	 * the rules of all enclosing scopes apply. This was needed for the return statement, see {@link ExampleLanguage}.
 	 */
 	private final Map<Object, Rule> keyedRules = new LinkedHashMap<>();
 
@@ -50,8 +49,8 @@ final class Scope {
 	}
 
 	/**
-	 * Adds a rule that applies in this scope and in the scopes below it, unless an inner scope has a rule with the
-	 * same key.
+	 * Adds a rule that applies in this scope and in the scopes below it, unless an inner scope has a rule with the same
+	 * key.
 	 */
 	void addShadowing(Object key, Rule rule) {
 		keyedRules.put(key, rule);

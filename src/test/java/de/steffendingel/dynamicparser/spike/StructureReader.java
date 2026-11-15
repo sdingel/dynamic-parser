@@ -6,8 +6,8 @@ import java.util.Deque;
 import java.util.List;
 
 /**
- * Splits a source text into lines and derives the nesting of the lines from their indentation. Knows nothing about
- * the grammar.
+ * Splits a source text into lines and derives the nesting of the lines from their indentation. Knows nothing about the
+ * grammar.
  * <p>
  * Provisional rules of the spike:
  * <ul>

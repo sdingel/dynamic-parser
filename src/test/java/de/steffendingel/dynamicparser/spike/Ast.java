@@ -18,8 +18,8 @@ final class Ast {
 	}
 
 	/**
-	 * A type. Every type has a nonterminal for the expressions of that type: an expression of type {@code T} may
-	 * appear wherever the grammar expects the nonterminal of {@code T}.
+	 * A type. Every type has a nonterminal for the expressions of that type: an expression of type {@code T} may appear
+	 * wherever the grammar expects the nonterminal of {@code T}.
 	 */
 	static final class Type {
 

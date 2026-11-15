@@ -9,6 +9,7 @@ import java.util.PriorityQueue;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import de.steffendingel.dynamicparser.Action;
 import de.steffendingel.dynamicparser.Grammar;
 import de.steffendingel.dynamicparser.Match;
 import de.steffendingel.dynamicparser.Nonterminal;
@@ -42,13 +43,13 @@ import de.steffendingel.dynamicparser.spike.Token.Kind;
  *     return 1
  * </pre>
  *
- * Every declaration adds grammar rules; using an undeclared name is a syntax error. Class blocks and function bodies are
- * deferred: the header rule takes the block as a single {@link Kind#BLOCK} token, and its action puts the block into a
- * queue with a start symbol, a phase and a scope. After the main input, the queue is processed by phase and, within a
- * phase, in source order. The block of an {@code if} statement is parsed immediately, by a nested parse run started from
- * the action of the statement.
+ * Every declaration adds grammar rules; using an undeclared name is a syntax error. Class blocks and function bodies
+ * are deferred: the header rule takes the block as a single {@link Kind#BLOCK} token, and its action puts the block
+ * into a queue with a start symbol, a phase and a scope. After the main input, the queue is processed by phase and,
+ * within a phase, in source order. The block of an {@code if} statement is parsed immediately, by a nested parse run
+ * started from the action of the statement.
  * <p>
- * Grammar (the rules marked with * are added by actions; {@code T} stands for every type):
+ * Grammar ({@code BLOCK} is a block token, {@code EOL} the end of a line without a block):
  *
  * <pre>
  * Program    -> ε | Program TopLevel
@@ -68,14 +69,18 @@ import de.steffendingel.dynamicparser.spike.Token.Kind;
  * Expression -> Expression&lt;Integer&gt;
  * Expression&lt;Integer&gt; -> integer
  *
- * Type          -> 'A'                                      * global, for class A
- * Expression    -> Expression&lt;A&gt;                            * global, for class A
- * Expression&lt;T&gt; -> 'x'                                      * scope of the declaration, for a parameter or variable x
- * Expression&lt;R&gt; -> 'f' '(' Expression&lt;T1&gt; ',' ... ')'          * for a function f(T1, ...): R; global for a top-level
- *                                                             function, in the enclosing scope for a local one
- * Expression&lt;R&gt; -> Expression&lt;A&gt; '.' 'g' '(' ... ')'          * global, for a method g(...): R of class A
- * Expression&lt;R&gt; -> 'g' '(' ... ')'                            * scope of class A, for a method g(...): R of class A
- * Statement     -> 'return' Expression&lt;R&gt; EOL                 * scope of a function with return type R, shadowing
+ * // Added by actions. For a class A, in the global scope:
+ * Type          -> 'A'
+ * Expression    -> Expression&lt;A&gt;
+ * // For a parameter or variable x of type T, in the scope of the declaration:
+ * Expression&lt;T&gt; -> 'x'
+ * // For a function f(T1, ...): R, global for a top-level function, in the enclosing scope for a local one:
+ * Expression&lt;R&gt; -> 'f' '(' Expression&lt;T1&gt; ',' ... ')'
+ * // For a method g(T1, ...): R of class A, global and in the scope of A:
+ * Expression&lt;R&gt; -> Expression&lt;A&gt; '.' 'g' '(' Expression&lt;T1&gt; ',' ... ')'
+ * Expression&lt;R&gt; -> 'g' '(' Expression&lt;T1&gt; ',' ... ')'
+ * // For a function or method with return type R, in its scope, shadowing that of an enclosing function:
+ * Statement     -> 'return' Expression&lt;R&gt; EOL
  * </pre>
  *
  * Because the library has no scopes, the language keeps a tree of {@link Scope scopes} next to the parser. Every rule
@@ -115,8 +120,7 @@ final class ExampleLanguage {
 	}
 
 	/** A block in the queue. */
-	private record Deferred(int phase, int line, long sequence, Nonterminal start, Run run,
-			Consumer<Object> attach) {
+	private record Deferred(int phase, int line, long sequence, Nonterminal start, Run run, Consumer<Object> attach) {
 	}
 
 	/**
@@ -142,8 +146,7 @@ final class ExampleLanguage {
 
 	private final Terminal integer = new Terminal("integer", token -> ((Token) token).kind() == Kind.INTEGER);
 
-	private final Terminal endOfLine = new Terminal("end of line",
-			token -> ((Token) token).kind() == Kind.END_OF_LINE);
+	private final Terminal endOfLine = new Terminal("end of line", token -> ((Token) token).kind() == Kind.END_OF_LINE);
 
 	private final Terminal block = new Terminal("indented block", token -> ((Token) token).kind() == Kind.BLOCK);
 
@@ -193,8 +196,8 @@ final class ExampleLanguage {
 	/** The key of the return statement rule, which an inner function scope shadows. */
 	private static final Object RETURN = new Object();
 
-	private final PriorityQueue<Deferred> queue = new PriorityQueue<>(
-			Comparator.comparingInt(Deferred::phase).thenComparingInt(Deferred::line).thenComparingLong(Deferred::sequence));
+	private final PriorityQueue<Deferred> queue = new PriorityQueue<>(Comparator.comparingInt(Deferred::phase)
+			.thenComparingInt(Deferred::line).thenComparingLong(Deferred::sequence));
 
 	private long sequence;
 
@@ -303,6 +306,11 @@ final class ExampleLanguage {
 	/** Maps the token position of a parse exception to the source position of the token. */
 	private static SourceError sourceError(ParseException e, Run run) {
 		List<Token> tokens = run.tokens();
+		if (tokens.isEmpty()) {
+			return new SourceError(1, 1, run.scope().toString(), e);
+		}
+		// At the end of the input there is no token at the position; the error is reported at the last token, which
+		// ends the last line.
 		Token token = tokens.get(Math.min(e.position(), tokens.size() - 1));
 		return new SourceError(token.line(), token.column(), run.scope().toString(), e);
 	}
@@ -431,7 +439,7 @@ final class ExampleLanguage {
 		});
 	}
 
-	private void base(Nonterminal lhs, List<? extends Symbol> rhs, de.steffendingel.dynamicparser.Action action) {
+	private void base(Nonterminal lhs, List<? extends Symbol> rhs, Action action) {
 		baseRules.add(new Rule(lhs, rhs, action));
 	}
 

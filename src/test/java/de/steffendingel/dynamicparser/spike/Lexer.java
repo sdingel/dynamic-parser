@@ -23,7 +23,7 @@ final class Lexer {
 		List<Token> tokens = new ArrayList<>();
 		for (Line line : lines) {
 			tokenize(line, tokens);
-			int endColumn = line.textColumn() + line.text().stripTrailing().length();
+			int endColumn = endColumn(line);
 			if (line.children().isEmpty()) {
 				tokens.add(new Token(Kind.END_OF_LINE, "", line.number(), endColumn, List.of()));
 			} else {
@@ -31,6 +31,33 @@ final class Lexer {
 			}
 		}
 		return tokens;
+	}
+
+	/**
+	 * Tokenizes a sequence of lines of the same block into a flat token stream, for comparison: every line is followed
+	 * by an {@link Kind#END_OF_LINE} token, and the tokens of the block of a line are enclosed in {@link Kind#INDENT}
+	 * and {@link Kind#DEDENT} tokens. An {@code INDENT} token has the position of the first token of the block, a
+	 * {@code DEDENT} token the position of the end of the last line of the block.
+	 */
+	static List<Token> flatTokens(List<Line> lines) {
+		List<Token> tokens = new ArrayList<>();
+		for (Line line : lines) {
+			tokenize(line, tokens);
+			tokens.add(new Token(Kind.END_OF_LINE, "", line.number(), endColumn(line), List.of()));
+			if (!line.children().isEmpty()) {
+				Line first = line.children().getFirst();
+				tokens.add(new Token(Kind.INDENT, "", first.number(), first.textColumn(), List.of()));
+				List<Token> inner = flatTokens(line.children());
+				tokens.addAll(inner);
+				Token last = inner.getLast();
+				tokens.add(new Token(Kind.DEDENT, "", last.line(), last.column(), List.of()));
+			}
+		}
+		return tokens;
+	}
+
+	private static int endColumn(Line line) {
+		return line.textColumn() + line.text().stripTrailing().length();
 	}
 
 	private static void tokenize(Line line, List<Token> tokens) {
