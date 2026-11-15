@@ -9,8 +9,8 @@ import de.steffendingel.dynamicparser.Nonterminal;
  * The values computed by the actions of the {@link ExampleLanguage}: a small syntax tree.
  * <p>
  * Class and function declarations are mutable: their members and bodies are deferred blocks, which are parsed long
- * after the action that created the declaration has returned. The value of a deferred block is attached later by a
- * callback stored with the block in the queue.
+ * after the action that created the declaration has returned. The signature of a top-level function is deferred as
+ * well. The value of a deferred block is attached later by a callback stored with the block in the queue.
  */
 final class Ast {
 
@@ -83,17 +83,17 @@ final class Ast {
 
 		final String name;
 
-		final List<Param> params;
+		/** The parameters; {@code null} until the signature has been parsed. */
+		List<Param> params;
 
-		final Type returnType;
+		/** The return type; {@code null} until the signature has been parsed. */
+		Type returnType;
 
 		/** The statements of the body; {@code null} until the body has been parsed. */
 		List<Object> body;
 
-		FunctionDecl(String name, List<Param> params, Type returnType) {
+		FunctionDecl(String name) {
 			this.name = name;
-			this.params = List.copyOf(params);
-			this.returnType = returnType;
 		}
 	}
 
@@ -133,6 +133,10 @@ final class Ast {
 				print(c.methods, inner, out);
 			}
 			case FunctionDecl f -> {
+				if (f.params == null) {
+					out.append("fun ").append(f.name).append(" <not parsed>\n");
+					break;
+				}
 				out.append("fun ").append(f.name)
 						.append(f.params.stream().map(Param::toString).collect(Collectors.joining(", ", "(", ")")))
 						.append(": ").append(f.returnType).append('\n');

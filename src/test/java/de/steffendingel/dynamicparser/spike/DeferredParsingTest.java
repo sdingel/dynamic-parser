@@ -162,6 +162,56 @@ class DeferredParsingTest {
 		assertEquals(source, compileValid(source));
 	}
 
+	// Deferred signatures
+
+	@Test
+	void signatureOfATopLevelFunctionUsesAClassDeclaredLater() throws IndentationException {
+		// The main run only takes the name of f; the rest of the header line is parsed after the main run, when all
+		// class names are known.
+		String source = """
+				fun f(a: A, n: Integer): A
+				    return a.g(a)
+				class A
+				    fun g(a: A): A
+				        return f(a, 1)
+				""";
+
+		assertEquals(source, compileValid(source));
+	}
+
+	@Test
+	void errorInADeferredSignatureIsReportedAtItsSourcePosition() throws IndentationException {
+		String source = """
+				fun g(): Integer
+				    return 1
+				fun f(n: Integer, u: Unknown): Integer
+				    return n
+				""";
+
+		Compilation compilation = ExampleLanguage.compile(source);
+
+		assertEquals(1, compilation.errors().size());
+		SourceError error = compilation.errors().getFirst();
+		assertSyntaxError(3, 22, "'Unknown'", error);
+		assertEquals("global", error.scope());
+		// The function is not declared and its body is not parsed.
+		assertEquals("""
+				fun g(): Integer
+				    return 1
+				fun f <not parsed>
+				""", compilation.print());
+	}
+
+	@Test
+	void incompleteSignatureIsReportedAtTheEndOfTheHeaderLine() throws IndentationException {
+		String source = """
+				fun f()
+				    return 1
+				""";
+
+		assertSyntaxError(1, 8, "indented block", compileWithError(source));
+	}
+
 	// Visibility
 
 	@Test
@@ -405,20 +455,6 @@ class DeferredParsingTest {
 	}
 
 	// Limitations of the model, documented as observations
-
-	@Test
-	void signatureOfATopLevelFunctionCannotUseAClassDeclaredLater() throws IndentationException {
-		// Top-level function headers are parsed in the main run, before the class headers that follow them.
-		String source = """
-				fun f(a: A): Integer
-				    return 1
-				class A
-				    fun g(): Integer
-				        return 1
-				""";
-
-		assertSyntaxError(1, 10, "'A'", compileWithError(source));
-	}
 
 	@Test
 	void localFunctionSeesLocalsDeclaredAfterIt() throws IndentationException {

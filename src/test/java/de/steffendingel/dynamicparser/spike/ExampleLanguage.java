@@ -49,12 +49,19 @@ import de.steffendingel.dynamicparser.spike.Token.Kind;
  * within a phase, in source order. The block of an {@code if} statement is parsed immediately, by a nested parse run
  * started from the action of the statement.
  * <p>
+ * The signature of a top-level function is deferred as well: the main run only takes the name and collects the other
+ * tokens of the header line unparsed, so that the signature can refer to classes that are declared later. This shows
+ * that the unit of deferral is not only an indented block but also the rest of a line. Methods and local functions do
+ * not need this, because all class names are known when their headers are parsed.
+ * <p>
  * Grammar ({@code BLOCK} is a block token, {@code EOL} the end of a line without a block):
  *
  * <pre>
  * Program    -> ε | Program TopLevel
  * TopLevel   -> 'class' word BLOCK                                     // defers the block: phase 1, Members
- * TopLevel   -> 'fun' word '(' Params ')' ':' Type BLOCK               // defers the body: phase 2, Body
+ * TopLevel   -> 'fun' word RawSignature BLOCK                         // defers the signature: phase 1, Signature
+ * RawSignature -> ε | RawSignature token                               // any token of the header line
+ * Signature  -> '(' Params ')' ':' Type BLOCK                          // defers the body: phase 2, Body
  * Members    -> ε | Members Method
  * Method     -> 'fun' word '(' Params ')' ':' Type BLOCK               // defers the body: phase 2, Body
  * Body       -> ε | Body Statement
@@ -90,8 +97,8 @@ import de.steffendingel.dynamicparser.spike.Token.Kind;
  */
 final class ExampleLanguage {
 
-	/** The phase of class blocks: the member signatures. */
-	static final int PHASE_MEMBERS = 1;
+	/** The phase of signatures: class blocks with their member signatures, and signatures of top-level functions. */
+	static final int PHASE_SIGNATURES = 1;
 
 	/** The phase of function and method bodies, including the bodies of local functions. */
 	static final int PHASE_BODIES = 2;
@@ -115,11 +122,15 @@ final class ExampleLanguage {
 		long totalRules;
 	}
 
-	/** A parse run: the scope of the block, its tokens and the class whose block or method is being parsed. */
+	/** A parse run: its scope, its tokens and the class whose block or method is being parsed. */
 	private record Run(Scope scope, List<Token> tokens, Type owner) {
 	}
 
-	/** A block in the queue. */
+	/** The value of a deferred signature. */
+	private record Signature(List<Param> params, Type returnType) {
+	}
+
+	/** An entry of the queue: a block or the signature of a top-level function. */
 	private record Deferred(int phase, int line, long sequence, Nonterminal start, Run run, Consumer<Object> attach) {
 	}
 
@@ -150,6 +161,10 @@ final class ExampleLanguage {
 
 	private final Terminal block = new Terminal("indented block", token -> ((Token) token).kind() == Kind.BLOCK);
 
+	/** Any token within a line, that is, any token that does not end a line. */
+	private final Terminal tokenInLine = new Terminal("token",
+			token -> ((Token) token).kind() != Kind.END_OF_LINE && ((Token) token).kind() != Kind.BLOCK);
+
 	private final Terminal openParen = symbol(Kind.BRACKET, "(");
 
 	private final Terminal closeParen = symbol(Kind.BRACKET, ")");
@@ -167,6 +182,10 @@ final class ExampleLanguage {
 	private final Nonterminal program = new Nonterminal("Program");
 
 	private final Nonterminal topLevel = new Nonterminal("TopLevel");
+
+	private final Nonterminal rawSignature = new Nonterminal("RawSignature");
+
+	private final Nonterminal signature = new Nonterminal("Signature");
 
 	private final Nonterminal members = new Nonterminal("Members");
 
@@ -217,8 +236,14 @@ final class ExampleLanguage {
 		base(program, List.of(program, topLevel), ExampleLanguage::append);
 		// TopLevel -> 'class' word BLOCK
 		base(topLevel, List.of(keyword("class"), word, block), this::classDeclaration);
-		// TopLevel -> 'fun' word '(' Params ')' ':' Type BLOCK
-		base(topLevel, functionHeader(), match -> functionDeclaration(match, FunctionKind.TOP_LEVEL));
+		// TopLevel -> 'fun' word RawSignature BLOCK
+		base(topLevel, List.of(keyword("fun"), word, rawSignature, block), this::topLevelFunction);
+		// RawSignature -> ε | RawSignature token
+		base(rawSignature, List.of(), match -> List.of());
+		base(rawSignature, List.of(rawSignature, tokenInLine), ExampleLanguage::append);
+		// Signature -> '(' Params ')' ':' Type BLOCK
+		base(signature, List.of(openParen, params, closeParen, colon, type, block),
+				match -> new Signature(castList(match.value(1)), match.value(4, Type.class)));
 		// Members -> ε | Members Method
 		base(members, List.of(), match -> List.of());
 		base(members, List.of(members, method), ExampleLanguage::append);
@@ -329,26 +354,61 @@ final class ExampleLanguage {
 		declare(match, global, new Rule(type, List.of(keyword(name)), m -> classType));
 		declare(match, global, new Rule(expression, List.of(classType.expression()), m -> m.value(0)));
 		Scope classScope = new Scope(global, "class " + name);
-		defer(match, PHASE_MEMBERS, members, classScope, classType, value -> declaration.methods = castList(value));
+		defer(match.value(2, Token.class), PHASE_SIGNATURES, members, classScope, classType,
+				value -> declaration.methods = castList(value));
 		return declaration;
 	}
 
+	/**
+	 * The header of a top-level function in the main run. Only the name is known here; the rest of the header line is
+	 * put into the queue unparsed, followed by the block token, which ends the line. When the signature has been
+	 * parsed, the function is declared and its body is put into the queue.
+	 */
+	private Object topLevelFunction(Match match) {
+		FunctionDecl declaration = new FunctionDecl(text(match, 1));
+		Token blockToken = match.value(3, Token.class);
+		List<Token> tokens = new ArrayList<>(ExampleLanguage.<Token>castList(match.value(2)));
+		tokens.add(blockToken);
+		Run run = new Run(global, tokens, null);
+		queue.add(new Deferred(PHASE_SIGNATURES, blockToken.line(), sequence++, signature, run, value -> {
+			Signature parsed = (Signature) value;
+			declaration.params = parsed.params();
+			declaration.returnType = parsed.returnType();
+			// No parse run is in progress here, so the rules only go into the scopes.
+			declareFunction(null, declaration, FunctionKind.TOP_LEVEL, global, null, blockToken);
+		}));
+		return declaration;
+	}
+
+	/** The header of a method or of a local function, which is parsed where it stands. */
 	private Object functionDeclaration(Match match, FunctionKind kind) {
-		String name = text(match, 1);
-		List<Param> parameters = castList(match.value(3));
-		Type returnType = match.value(6, Type.class);
-		FunctionDecl declaration = new FunctionDecl(name, parameters, returnType);
+		FunctionDecl declaration = new FunctionDecl(text(match, 1));
+		declaration.params = castList(match.value(3));
+		declaration.returnType = match.value(6, Type.class);
 		Run run = runs.peek();
+		declareFunction(match, declaration, kind, run.scope(), run.owner(), match.value(7, Token.class));
+		return declaration;
+	}
+
+	/**
+	 * Declares a function whose signature is known and defers its body.
+	 *
+	 * @param match     the match of the header if the header is parsed in the running parse, otherwise {@code null}
+	 * @param enclosing the scope in which the function is declared
+	 * @param owner     the class of a method, otherwise the class whose method encloses the function, or {@code null}
+	 */
+	private void declareFunction(Match match, FunctionDecl declaration, FunctionKind kind, Scope enclosing, Type owner,
+			Token blockToken) {
 		switch (kind) {
 		case TOP_LEVEL -> declare(match, global, callRule(declaration, null));
 		case METHOD -> {
-			declare(match, global, callRule(declaration, run.owner()));
-			declare(match, run.scope(), callRule(declaration, null));
+			declare(match, global, callRule(declaration, owner));
+			declare(match, enclosing, callRule(declaration, null));
 		}
-		case LOCAL -> declare(match, run.scope(), callRule(declaration, null));
+		case LOCAL -> declare(match, enclosing, callRule(declaration, null));
 		}
-		Scope functionScope = new Scope(run.scope(), "fun " + name);
-		for (Param parameter : parameters) {
+		Scope functionScope = new Scope(enclosing, "fun " + declaration.name);
+		for (Param parameter : declaration.params) {
 			functionScope.add(nameRule(parameter.name(), parameter.type()));
 		}
 		// Statement -> 'return' Expression<R> EOL
@@ -356,11 +416,11 @@ final class ExampleLanguage {
 		// in a local function. With equal return types the two rules make every return statement ambiguous, with
 		// different ones a return value of the wrong type would be accepted. The rule therefore shadows the return rule
 		// of enclosing scopes.
+		Type returnType = declaration.returnType;
 		functionScope.addShadowing(RETURN,
 				new Rule(statement, List.of(keyword("return"), returnType.expression(), endOfLine),
 						m -> new ReturnStatement(m.value(1, Expression.class))));
-		defer(match, PHASE_BODIES, body, functionScope, run.owner(), value -> declaration.body = castList(value));
-		return declaration;
+		defer(blockToken, PHASE_BODIES, body, functionScope, owner, value -> declaration.body = castList(value));
 	}
 
 	private Object varStatement(Match match) {
@@ -389,17 +449,19 @@ final class ExampleLanguage {
 
 	/**
 	 * Records a rule in a scope and, if the scope applies to the running parse, also adds it to the running parse.
+	 *
+	 * @param match the match whose action declares the rule, or {@code null} if no parse run is in progress
 	 */
 	private void declare(Match match, Scope scope, Rule rule) {
 		scope.add(rule);
-		if (runs.peek().scope().isWithin(scope)) {
+		if (match != null && runs.peek().scope().isWithin(scope)) {
 			match.grammar().add(rule);
 		}
 	}
 
-	/** Puts the block at the end of a matched header into the queue. The block is the last value of the match. */
-	private void defer(Match match, int phase, Nonterminal start, Scope scope, Type owner, Consumer<Object> attach) {
-		Token blockToken = match.value(match.size() - 1, Token.class);
+	/** Puts the block at the end of a header into the queue. */
+	private void defer(Token blockToken, int phase, Nonterminal start, Scope scope, Type owner,
+			Consumer<Object> attach) {
 		// The block is tokenized now; it could just as well be done when the block is taken from the queue.
 		Run run = new Run(scope, Lexer.tokens(blockToken.block()), owner);
 		queue.add(new Deferred(phase, blockToken.line(), sequence++, start, run, attach));
